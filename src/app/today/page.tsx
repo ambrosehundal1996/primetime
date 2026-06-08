@@ -1,14 +1,22 @@
+import { Suspense } from "react";
 import { getTasksForDay, getTasksForWeek } from "@/services/tasks";
 import { calculateDailyMetrics } from "@/services/metrics";
 import { groupTasksByPriority, groupTasksByStatus } from "@/services/tasks";
-import { todayStr, formatDate, getWeekBounds } from "@/lib/dates";
+import { todayStr, formatDate, getWeekBounds, isToday } from "@/lib/dates";
 import { ExecutionScore } from "@/components/today/execution-score";
 import { TaskList } from "@/components/today/task-list";
+import { TodayDayNav } from "@/components/today/today-day-nav";
 
 export const dynamic = "force-dynamic";
 
-export default async function TodayPage() {
-  const date = todayStr();
+interface TodayPageProps {
+  searchParams: Promise<{ date?: string }>;
+}
+
+export default async function TodayPage({ searchParams }: TodayPageProps) {
+  const params = await searchParams;
+  const date = params.date ?? todayStr();
+  const viewingToday = isToday(date);
   const bounds = getWeekBounds();
   let tasks: Awaited<ReturnType<typeof getTasksForDay>> = [];
   let weekTasks: Awaited<ReturnType<typeof getTasksForWeek>> = [];
@@ -16,17 +24,21 @@ export default async function TodayPage() {
   try {
     [tasks, weekTasks] = await Promise.all([
       getTasksForDay(date),
-      getTasksForWeek(bounds.startStr, bounds.endStr),
+      viewingToday
+        ? getTasksForWeek(bounds.startStr, bounds.endStr)
+        : Promise.resolve([]),
     ]);
   } catch {
     // Supabase not configured yet — show empty state
   }
 
-  const upcoming = weekTasks.filter(
-    (t) =>
-      t.task_date > date &&
-      !["completed", "missed", "skipped"].includes(t.status)
-  );
+  const upcoming = viewingToday
+    ? weekTasks.filter(
+        (t) =>
+          t.task_date > date &&
+          !["completed", "missed", "skipped"].includes(t.status)
+      )
+    : [];
 
   const metrics = calculateDailyMetrics(tasks);
   const byPriority = groupTasksByPriority(tasks);
@@ -34,19 +46,22 @@ export default async function TodayPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Today</h1>
-        <p className="text-sm text-gray-500">
-          {formatDate(date, "EEEE, MMMM d, yyyy")}
-        </p>
-      </div>
+      <Suspense fallback={null}>
+        <TodayDayNav date={date} />
+      </Suspense>
 
       <ExecutionScore metrics={metrics} />
 
-      {tasks.length === 0 && upcoming.length > 0 && (
+      {viewingToday && tasks.length === 0 && upcoming.length > 0 && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
           No tasks scheduled for today, but you have {upcoming.length} upcoming
-          this week.
+          this week. Use → to check future days.
+        </div>
+      )}
+
+      {!viewingToday && tasks.length === 0 && (
+        <div className="rounded-lg border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-500">
+          No tasks for {formatDate(date, "MMMM d")}.
         </div>
       )}
 
