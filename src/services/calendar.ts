@@ -1,54 +1,99 @@
 import { google } from "googleapis";
 import { addMinutes, parseISO, format, isBefore, isAfter } from "date-fns";
+import { fromZonedTime } from "date-fns-tz";
 import type { CalendarEvent, TimeSlot } from "@/types/database";
 
 const WORK_DAY_START_HOUR = 7;
 const WORK_DAY_END_HOUR = 22;
 const MIN_SLOT_MINUTES = 30;
 
+export type CalendarFetchResult = {
+  events: CalendarEvent[];
+  error: string | null;
+  configured: boolean;
+};
+
+function getCalendarTimezone(): string {
+  return process.env.CALENDAR_TIMEZONE ?? "America/Los_Angeles";
+}
+
+function isCalendarConfigured(): boolean {
+  return !!(
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET &&
+    process.env.GOOGLE_REFRESH_TOKEN &&
+    !process.env.GOOGLE_CLIENT_ID.includes("your-") &&
+    !process.env.GOOGLE_REFRESH_TOKEN.includes("your-")
+  );
+}
+
+function getDayBoundsUTC(dateStr: string): { timeMin: string; timeMax: string } {
+  const tz = getCalendarTimezone();
+  const timeMin = fromZonedTime(`${dateStr}T00:00:00`, tz).toISOString();
+  const timeMax = fromZonedTime(`${dateStr}T23:59:59.999`, tz).toISOString();
+  return { timeMin, timeMax };
+}
+
 function getCalendarClient() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+  if (!isCalendarConfigured()) return null;
 
-  if (!clientId || !clientSecret || !refreshToken) {
-    return null;
-  }
-
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+  });
   return google.calendar({ version: "v3", auth: oauth2Client });
 }
 
 export async function getCalendarEvents(
   dateStr: string
-): Promise<CalendarEvent[]> {
+): Promise<CalendarFetchResult> {
+  if (!isCalendarConfigured()) {
+    return {
+      events: [],
+      error: "Google Calendar is not configured. Add GOOGLE_* env vars.",
+      configured: false,
+    };
+  }
+
   const calendar = getCalendarClient();
-  if (!calendar) return [];
+  if (!calendar) {
+    return {
+      events: [],
+      error: "Failed to initialize Google Calendar client.",
+      configured: false,
+    };
+  }
 
   const calendarId = process.env.GOOGLE_CALENDAR_ID ?? "primary";
-  const dayStart = `${dateStr}T00:00:00`;
-  const dayEnd = `${dateStr}T23:59:59`;
+  const { timeMin, timeMax } = getDayBoundsUTC(dateStr);
 
   try {
     const response = await calendar.events.list({
       calendarId,
-      timeMin: new Date(dayStart).toISOString(),
-      timeMax: new Date(dayEnd).toISOString(),
+      timeMin,
+      timeMax,
+      timeZone: getCalendarTimezone(),
       singleEvents: true,
       orderBy: "startTime",
     });
 
-    return (response.data.items ?? []).map((event) => ({
+    const events = (response.data.items ?? []).map((event) => ({
       id: event.id ?? "",
       title: event.summary ?? "Untitled",
       start: event.start?.dateTime ?? event.start?.date ?? "",
       end: event.end?.dateTime ?? event.end?.date ?? "",
       allDay: !event.start?.dateTime,
     }));
+
+    return { events, error: null, configured: true };
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown calendar error";
     console.error("Failed to fetch calendar events:", error);
-    return [];
+    return { events: [], error: message, configured: true };
   }
 }
 

@@ -1,5 +1,5 @@
 import { createServerClient } from "@/lib/supabase/server";
-import { getWeekBounds } from "@/lib/dates";
+import { getWeekBounds, todayStr } from "@/lib/dates";
 import {
   calculateGoalCompletionPct,
   calculateGoalStatus,
@@ -18,14 +18,40 @@ export async function getActiveGoals(
 ): Promise<WeeklyGoal[]> {
   const supabase = createServerClient();
   const bounds = getWeekBounds();
-  const start = weekStart ?? bounds.startStr;
+  const today = todayStr();
 
+  // Match goals whose week range contains today (forgiving of exact week_start_date)
+  let query = supabase
+    .from("weekly_goals")
+    .select("*")
+    .lte("week_start_date", today)
+    .gte("week_end_date", today)
+    .in("status", ["active", "met", "partially_met"])
+    .order("priority", { ascending: true });
+
+  // Optional explicit week filter (e.g. agent tools passing a specific Monday)
+  if (weekStart) {
+    const weekEnd = bounds.endStr;
+    query = supabase
+      .from("weekly_goals")
+      .select("*")
+      .eq("week_start_date", weekStart)
+      .eq("week_end_date", weekEnd)
+      .in("status", ["active", "met", "partially_met"])
+      .order("priority", { ascending: true });
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getAllGoals(): Promise<WeeklyGoal[]> {
+  const supabase = createServerClient();
   const { data, error } = await supabase
     .from("weekly_goals")
     .select("*")
-    .eq("week_start_date", start)
-    .in("status", ["active", "met", "partially_met"])
-    .order("priority", { ascending: true });
+    .order("created_at", { ascending: false });
 
   if (error) throw error;
   return data ?? [];

@@ -9,8 +9,17 @@ import {
   startOfDay,
   endOfDay,
 } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 
-export function getWeekBounds(date: Date = new Date()): {
+function getAppTimezone(): string {
+  return process.env.CALENDAR_TIMEZONE ?? "America/Los_Angeles";
+}
+
+function nowInAppTimezone(): Date {
+  return toZonedTime(new Date(), getAppTimezone());
+}
+
+export function getWeekBounds(date: Date = nowInAppTimezone()): {
   start: Date;
   end: Date;
   startStr: string;
@@ -27,7 +36,7 @@ export function getWeekBounds(date: Date = new Date()): {
 }
 
 export function todayStr(): string {
-  return format(new Date(), "yyyy-MM-dd");
+  return format(nowInAppTimezone(), "yyyy-MM-dd");
 }
 
 export function formatDate(date: string | Date, fmt = "MMM d, yyyy"): string {

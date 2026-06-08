@@ -13,13 +13,14 @@ export async function generateDailyPlan(
   behind_pace_goals: GoalProgress[];
   unscheduled_tasks: ActionTask[];
 }> {
-  const [events, incompleteTasks, behindGoals, allProgress] = await Promise.all([
+  const [calendarResult, incompleteTasks, behindGoals, allProgress] = await Promise.all([
     getCalendarEvents(date),
     getIncompleteTasks(date),
     getGoalsBehindPace(),
     getGoalProgressList(),
   ]);
 
+  const events = calendarResult.events;
   const slots = findAvailableSlots(events, date);
   const sorted = sortTasksByPriority(incompleteTasks);
   const unscheduled = sorted.filter((t) => !t.scheduled_start);

@@ -1,15 +1,26 @@
-import { getGoalProgressList } from "@/services/goals";
-import { getWeekBounds, formatDate } from "@/lib/dates";
+import { getGoalProgressList, getAllGoals } from "@/services/goals";
+import { getWeekBounds, formatDate, todayStr } from "@/lib/dates";
 import { GoalCard } from "@/components/goals/goal-card";
+
+export const dynamic = "force-dynamic";
 
 export default async function GoalsPage() {
   const bounds = getWeekBounds();
+  const today = todayStr();
   let progress: Awaited<ReturnType<typeof getGoalProgressList>> = [];
+  let error: string | null = null;
+  let otherGoals: Awaited<ReturnType<typeof getAllGoals>> = [];
 
   try {
     progress = await getGoalProgressList();
-  } catch {
-    // Supabase not configured yet
+    if (progress.length === 0) {
+      const all = await getAllGoals();
+      otherGoals = all.filter(
+        (g) => !(g.week_start_date <= today && g.week_end_date >= today)
+      );
+    }
+  } catch (e) {
+    error = e instanceof Error ? e.message : "Failed to load goals";
   }
 
   const behind = progress.filter((p) => p.pace_status === "behind");
@@ -26,14 +37,44 @@ export default async function GoalsPage() {
         </p>
       </div>
 
-      {progress.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 p-12 text-center">
-          <p className="text-gray-500">No goals set for this week.</p>
-          <p className="text-sm text-gray-400 mt-2">
-            Use the Agent chat to create weekly goals, or configure Supabase to get started.
-          </p>
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <p className="font-medium">Failed to load goals</p>
+          <p className="mt-1">{error}</p>
         </div>
-      ) : (
+      )}
+
+      {progress.length === 0 && !error ? (
+        <div className="rounded-xl border border-dashed border-gray-200 p-12 text-center space-y-3">
+          <p className="text-gray-500">No goals set for this week.</p>
+          <p className="text-sm text-gray-400">
+            Showing goals where today ({formatDate(today)}) falls between{" "}
+            <code className="text-xs bg-gray-100 px-1 rounded">week_start_date</code> and{" "}
+            <code className="text-xs bg-gray-100 px-1 rounded">week_end_date</code>.
+          </p>
+          <p className="text-sm text-gray-400">
+            Expected range: {bounds.startStr} – {bounds.endStr}
+          </p>
+          {otherGoals.length > 0 && (
+            <div className="mt-4 text-left rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <p className="font-medium">
+                Found {otherGoals.length} goal(s) in Supabase outside this week:
+              </p>
+              <ul className="mt-2 space-y-1 list-disc list-inside">
+                {otherGoals.map((g) => (
+                  <li key={g.id}>
+                    {g.title} — {g.week_start_date} to {g.week_end_date} ({g.status})
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs">
+                Update <code>week_start_date</code> / <code>week_end_date</code> so today
+                is included, and set <code>status</code> to <code>active</code>.
+              </p>
+            </div>
+          )}
+        </div>
+      ) : progress.length > 0 ? (
         <>
           {behind.length > 0 && (
             <section>
@@ -59,7 +100,7 @@ export default async function GoalsPage() {
             </div>
           </section>
         </>
-      )}
+      ) : null}
     </div>
   );
 }

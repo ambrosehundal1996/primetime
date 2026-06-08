@@ -29,6 +29,7 @@ function TaskIcon({ status }: { status: string }) {
 
 export function TaskList({ tasks, title, emptyMessage }: TaskListProps) {
   if (tasks.length === 0) {
+    if (!title) return null;
     return (
       <div>
         <h3 className="mb-3 text-sm font-semibold text-gray-700">{title}</h3>
@@ -41,9 +42,11 @@ export function TaskList({ tasks, title, emptyMessage }: TaskListProps) {
 
   return (
     <div>
-      <h3 className="mb-3 text-sm font-semibold text-gray-700">
-        {title} ({tasks.length})
-      </h3>
+      {title && (
+        <h3 className="mb-3 text-sm font-semibold text-gray-700">
+          {title} ({tasks.length})
+        </h3>
+      )}
       <div className="space-y-2">
         {tasks.map((task) => (
           <Card key={task.id} className="border-gray-100">

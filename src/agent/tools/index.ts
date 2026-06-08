@@ -1,12 +1,14 @@
 import { tool } from "@openai/agents";
 import { z } from "zod";
-import { getActiveGoals, getGoalProgressList } from "@/services/goals";
+import { getActiveGoals, getGoalProgressList, createGoal } from "@/services/goals";
 import {
   getTasksForDay,
+  getTasksForWeek,
   createTask,
   updateTaskStatus,
   logTaskProgress,
 } from "@/services/tasks";
+import { getWeekBounds } from "@/lib/dates";
 import { getCalendarEvents, findAvailableSlots } from "@/services/calendar";
 import { generateDailyPlan } from "@/services/planning";
 import {
@@ -73,15 +75,67 @@ export const getCalendarAvailabilityTool = tool({
   }),
   execute: async ({ date }) => {
     const d = date ?? todayStr();
-    const events = await getCalendarEvents(d);
+    const { events, error } = await getCalendarEvents(d);
     const slots = findAvailableSlots(events, d);
-    return JSON.stringify({ date: d, events, available_slots: slots });
+    return JSON.stringify({ date: d, events, available_slots: slots, error });
+  },
+});
+
+export const createWeeklyGoalTool = tool({
+  name: "create_weekly_goal",
+  description:
+    "Create a weekly goal for the current week. ALWAYS use this before creating tasks that support a weekly commitment. Returns the goal with its id — pass that id as weekly_goal_id when creating related action tasks.",
+  parameters: z.object({
+    title: z.string(),
+    description: z.string().nullable(),
+    priority: z.enum(["P0", "P1", "P2"]),
+    target_type: z.enum(["count", "hours", "sessions", "boolean"]),
+    target_value: z.number(),
+    week_start_date: z
+      .string()
+      .nullable()
+      .describe("Monday of the week (YYYY-MM-DD). Defaults to current week."),
+    week_end_date: z
+      .string()
+      .nullable()
+      .describe("Sunday of the week (YYYY-MM-DD). Defaults to current week."),
+  }),
+  execute: async (input) => {
+    const bounds = getWeekBounds();
+    const goal = await createGoal({
+      title: input.title,
+      description: input.description ?? undefined,
+      priority: input.priority,
+      target_type: input.target_type,
+      target_value: input.target_value,
+      week_start_date: input.week_start_date ?? bounds.startStr,
+      week_end_date: input.week_end_date ?? bounds.endStr,
+    });
+    return JSON.stringify(goal);
+  },
+});
+
+export const getTasksForWeekTool = tool({
+  name: "get_tasks_for_week",
+  description: "Get all action tasks for the current week (or a specific week).",
+  parameters: z.object({
+    week_start: z.string().nullable(),
+    week_end: z.string().nullable(),
+  }),
+  execute: async ({ week_start, week_end }) => {
+    const bounds = getWeekBounds();
+    const tasks = await getTasksForWeek(
+      week_start ?? bounds.startStr,
+      week_end ?? bounds.endStr
+    );
+    return JSON.stringify(tasks);
   },
 });
 
 export const createTaskTool = tool({
   name: "create_task",
-  description: "Create a new action task. Tasks from goals inherit the goal's priority.",
+  description:
+    "Create a daily action task. When the task supports a weekly goal, you MUST pass weekly_goal_id from create_weekly_goal. Tasks from goals inherit the goal's priority.",
   parameters: z.object({
     title: z.string(),
     task_date: z.string(),
@@ -211,8 +265,10 @@ export const getBehaviorInsightsTool = tool({
 export const allTools = [
   getActiveGoalsTool,
   getTasksForDayTool,
+  getTasksForWeekTool,
   getGoalProgressTool,
   getCalendarAvailabilityTool,
+  createWeeklyGoalTool,
   createTaskTool,
   updateTaskStatusTool,
   logTaskProgressTool,

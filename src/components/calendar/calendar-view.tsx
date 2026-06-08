@@ -8,9 +8,17 @@ interface CalendarViewProps {
   date: string;
   events: CalendarEvent[];
   availableSlots: TimeSlot[];
+  error?: string | null;
+  configured?: boolean;
 }
 
-export function CalendarView({ date, events, availableSlots }: CalendarViewProps) {
+export function CalendarView({
+  date,
+  events,
+  availableSlots,
+  error,
+  configured = true,
+}: CalendarViewProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -21,6 +29,18 @@ export function CalendarView({ date, events, availableSlots }: CalendarViewProps
           {events.length} events · {availableSlots.length} open slots
         </p>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-medium">Calendar connection issue</p>
+          <p className="mt-1 text-amber-700">{error}</p>
+          {!configured && (
+            <p className="mt-2 text-xs text-amber-600">
+              See docs/GOOGLE_CALENDAR_SETUP.md for setup steps.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
