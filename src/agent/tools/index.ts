@@ -1,6 +1,11 @@
 import { tool } from "@openai/agents";
 import { z } from "zod";
-import { getActiveGoals, getGoalProgressList, createGoal } from "@/services/goals";
+import {
+  getActiveGoals,
+  getGoalsForWeek,
+  getGoalProgressList,
+  createGoal,
+} from "@/services/goals";
 import {
   getTasksForDay,
   getTasksForWeek,
@@ -29,7 +34,10 @@ export const getActiveGoalsTool = tool({
       .describe("Week start date (YYYY-MM-DD). Defaults to current week."),
   }),
   execute: async ({ week_start }) => {
-    const goals = await getActiveGoals(week_start ?? undefined);
+    const bounds = getWeekBounds();
+    const goals = week_start
+      ? await getGoalsForWeek(week_start, bounds.endStr)
+      : await getActiveGoals();
     return JSON.stringify(goals);
   },
 });

@@ -13,37 +13,40 @@ import type {
   WeeklyGoal,
 } from "@/types/database";
 
-export async function getActiveGoals(
-  weekStart?: string
+const VISIBLE_GOAL_STATUSES = [
+  "active",
+  "met",
+  "partially_met",
+  "missed",
+] as const;
+
+export async function getGoalsForWeek(
+  weekStart: string,
+  weekEnd: string
 ): Promise<WeeklyGoal[]> {
   const supabase = createServerClient();
-  const bounds = getWeekBounds();
-  const today = todayStr();
 
-  // Match goals whose week range contains today (forgiving of exact week_start_date)
-  let query = supabase
+  // Goals whose week range overlaps the selected week
+  const { data, error } = await supabase
     .from("weekly_goals")
     .select("*")
-    .lte("week_start_date", today)
-    .gte("week_end_date", today)
-    .in("status", ["active", "met", "partially_met"])
+    .lte("week_start_date", weekEnd)
+    .gte("week_end_date", weekStart)
+    .in("status", [...VISIBLE_GOAL_STATUSES])
     .order("priority", { ascending: true });
 
-  // Optional explicit week filter (e.g. agent tools passing a specific Monday)
-  if (weekStart) {
-    const weekEnd = bounds.endStr;
-    query = supabase
-      .from("weekly_goals")
-      .select("*")
-      .eq("week_start_date", weekStart)
-      .eq("week_end_date", weekEnd)
-      .in("status", ["active", "met", "partially_met"])
-      .order("priority", { ascending: true });
-  }
-
-  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
+}
+
+export async function getActiveGoals(): Promise<WeeklyGoal[]> {
+  const today = todayStr();
+  const bounds = getWeekBounds();
+  return getGoalsForWeek(bounds.startStr, bounds.endStr).then((goals) =>
+    goals.filter(
+      (g) => g.week_start_date <= today && g.week_end_date >= today
+    )
+  );
 }
 
 export async function getAllGoals(): Promise<WeeklyGoal[]> {
@@ -136,9 +139,13 @@ export function computeGoalProgress(goal: WeeklyGoal): GoalProgress {
 }
 
 export async function getGoalProgressList(
-  weekStart?: string
+  weekStart?: string,
+  weekEnd?: string
 ): Promise<GoalProgress[]> {
-  const goals = await getActiveGoals(weekStart);
+  const bounds = getWeekBounds();
+  const start = weekStart ?? bounds.startStr;
+  const end = weekEnd ?? bounds.endStr;
+  const goals = await getGoalsForWeek(start, end);
   return goals.map(computeGoalProgress);
 }
 

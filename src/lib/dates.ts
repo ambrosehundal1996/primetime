@@ -100,3 +100,12 @@ export function isToday(dateStr: string): boolean {
 export function isPastDate(dateStr: string): boolean {
   return dateStr < todayStr();
 }
+
+export function isCurrentWeek(dateStr: string): boolean {
+  const current = getWeekBounds();
+  const selected = getWeekBoundsForDate(dateStr);
+  return (
+    current.startStr === selected.startStr &&
+    current.endStr === selected.endStr
+  );
+}
