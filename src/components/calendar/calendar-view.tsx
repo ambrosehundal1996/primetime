@@ -21,14 +21,9 @@ export function CalendarView({
 }: CalendarViewProps) {
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900">
-          {formatDate(date, "EEEE, MMM d")}
-        </h2>
-        <p className="text-sm text-gray-500">
-          {events.length} events · {availableSlots.length} open slots
-        </p>
-      </div>
+      <p className="text-sm text-gray-500">
+        {events.length} events · {availableSlots.length} open slots
+      </p>
 
       {error && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

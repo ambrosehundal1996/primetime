@@ -47,6 +47,28 @@ function getCalendarClient() {
   return google.calendar({ version: "v3", auth: oauth2Client });
 }
 
+function mapGoogleEvents(
+  items: { id?: string | null; summary?: string | null; start?: { dateTime?: string | null; date?: string | null }; end?: { dateTime?: string | null; date?: string | null } }[]
+): CalendarEvent[] {
+  return items.map((event) => ({
+    id: event.id ?? "",
+    title: event.summary ?? "Untitled",
+    start: event.start?.dateTime ?? event.start?.date ?? "",
+    end: event.end?.dateTime ?? event.end?.date ?? "",
+    allDay: !event.start?.dateTime,
+  }));
+}
+
+function getRangeBoundsUTC(
+  startDate: string,
+  endDate: string
+): { timeMin: string; timeMax: string } {
+  const tz = getCalendarTimezone();
+  const timeMin = fromZonedTime(`${startDate}T00:00:00`, tz).toISOString();
+  const timeMax = fromZonedTime(`${endDate}T23:59:59.999`, tz).toISOString();
+  return { timeMin, timeMax };
+}
+
 export async function getCalendarEvents(
   dateStr: string
 ): Promise<CalendarFetchResult> {
@@ -80,21 +102,88 @@ export async function getCalendarEvents(
       orderBy: "startTime",
     });
 
-    const events = (response.data.items ?? []).map((event) => ({
-      id: event.id ?? "",
-      title: event.summary ?? "Untitled",
-      start: event.start?.dateTime ?? event.start?.date ?? "",
-      end: event.end?.dateTime ?? event.end?.date ?? "",
-      allDay: !event.start?.dateTime,
-    }));
-
-    return { events, error: null, configured: true };
+    return {
+      events: mapGoogleEvents(response.data.items ?? []),
+      error: null,
+      configured: true,
+    };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown calendar error";
     console.error("Failed to fetch calendar events:", error);
     return { events: [], error: message, configured: true };
   }
+}
+
+export async function getCalendarEventsForRange(
+  startDate: string,
+  endDate: string
+): Promise<CalendarFetchResult> {
+  if (!isCalendarConfigured()) {
+    return {
+      events: [],
+      error: "Google Calendar is not configured. Add GOOGLE_* env vars.",
+      configured: false,
+    };
+  }
+
+  const calendar = getCalendarClient();
+  if (!calendar) {
+    return {
+      events: [],
+      error: "Failed to initialize Google Calendar client.",
+      configured: false,
+    };
+  }
+
+  const calendarId = process.env.GOOGLE_CALENDAR_ID ?? "primary";
+  const { timeMin, timeMax } = getRangeBoundsUTC(startDate, endDate);
+
+  try {
+    const response = await calendar.events.list({
+      calendarId,
+      timeMin,
+      timeMax,
+      timeZone: getCalendarTimezone(),
+      singleEvents: true,
+      orderBy: "startTime",
+    });
+
+    return {
+      events: mapGoogleEvents(response.data.items ?? []),
+      error: null,
+      configured: true,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown calendar error";
+    console.error("Failed to fetch calendar events:", error);
+    return { events: [], error: message, configured: true };
+  }
+}
+
+export function eventDateKey(event: CalendarEvent): string {
+  if (event.allDay || !event.start.includes("T")) {
+    return event.start.slice(0, 10);
+  }
+  return format(parseISO(event.start), "yyyy-MM-dd");
+}
+
+export function groupEventsByDate(
+  events: CalendarEvent[],
+  days: string[]
+): Record<string, CalendarEvent[]> {
+  const grouped: Record<string, CalendarEvent[]> = {};
+  for (const day of days) grouped[day] = [];
+
+  for (const event of events) {
+    const key = eventDateKey(event);
+    if (grouped[key]) {
+      grouped[key].push(event);
+    }
+  }
+
+  return grouped;
 }
 
 export function findAvailableSlots(

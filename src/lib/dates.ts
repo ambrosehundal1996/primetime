@@ -75,3 +75,28 @@ export function getWeekDays(weekStart: string): string[] {
   const start = parseISO(weekStart);
   return Array.from({ length: 7 }, (_, i) => format(addDays(start, i), "yyyy-MM-dd"));
 }
+
+export function getWeekBoundsForDate(dateStr: string): {
+  startStr: string;
+  endStr: string;
+  days: string[];
+} {
+  const bounds = getWeekBounds(parseISO(dateStr));
+  return {
+    startStr: bounds.startStr,
+    endStr: bounds.endStr,
+    days: getWeekDays(bounds.startStr),
+  };
+}
+
+export function addDaysToDateStr(dateStr: string, days: number): string {
+  return format(addDays(parseISO(dateStr), days), "yyyy-MM-dd");
+}
+
+export function isToday(dateStr: string): boolean {
+  return dateStr === todayStr();
+}
+
+export function isPastDate(dateStr: string): boolean {
+  return dateStr < todayStr();
+}
