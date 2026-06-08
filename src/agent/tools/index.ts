@@ -13,7 +13,7 @@ import {
   updateTaskStatus,
   logTaskProgress,
 } from "@/services/tasks";
-import { getWeekBounds } from "@/lib/dates";
+import { getWeekBounds, getWeekBoundsForDate } from "@/lib/dates";
 import { getCalendarEvents, findAvailableSlots } from "@/services/calendar";
 import { generateDailyPlan } from "@/services/planning";
 import {
@@ -35,8 +35,11 @@ export const getActiveGoalsTool = tool({
   }),
   execute: async ({ week_start }) => {
     const bounds = getWeekBounds();
+    const week = week_start
+      ? getWeekBoundsForDate(week_start)
+      : bounds;
     const goals = week_start
-      ? await getGoalsForWeek(week_start, bounds.endStr)
+      ? await getGoalsForWeek(week.startStr, week.endStr)
       : await getActiveGoals();
     return JSON.stringify(goals);
   },

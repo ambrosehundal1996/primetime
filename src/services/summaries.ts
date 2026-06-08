@@ -1,7 +1,7 @@
 import { createServerClient } from "@/lib/supabase/server";
-import { getWeekBounds, todayStr } from "@/lib/dates";
+import { getWeekBounds, getWeekBoundsForDate, todayStr } from "@/lib/dates";
 import { getTasksForDay, getTasksForWeek } from "@/services/tasks";
-import { getActiveGoals } from "@/services/goals";
+import { getGoalsForWeek } from "@/services/goals";
 import {
   calculateDailyMetrics,
   calculateWeeklyMetrics,
@@ -93,13 +93,15 @@ export async function generateWeeklySummary(
   weekStart?: string
 ): Promise<WeeklySummary> {
   const supabase = createServerClient();
-  const bounds = getWeekBounds();
-  const start = weekStart ?? bounds.startStr;
+  const bounds = weekStart
+    ? getWeekBoundsForDate(weekStart)
+    : getWeekBounds();
+  const start = bounds.startStr;
   const end = bounds.endStr;
 
   const [tasks, goals] = await Promise.all([
     getTasksForWeek(start, end),
-    getActiveGoals(start),
+    getGoalsForWeek(start, end),
   ]);
 
   const metrics = calculateWeeklyMetrics(tasks, goals);
