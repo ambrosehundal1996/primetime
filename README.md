@@ -99,6 +99,7 @@ The AI agent has 11 tools for reading and writing application state:
 - [Architecture](docs/ARCHITECTURE.md) — System design, data flow, layer separation
 - [Wireframes](docs/WIREFRAMES.md) — Dashboard UI layouts
 - [Roadmap](docs/ROADMAP.md) — MVP phases and future features
+- [Google Calendar Setup](docs/GOOGLE_CALENDAR_SETUP.md) — OAuth and refresh token guide
 
 ## License
 

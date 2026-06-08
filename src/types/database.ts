@@ -253,3 +253,112 @@ export type UpdateTaskStatusInput = {
   completed_value?: number;
   notes?: string;
 };
+
+export type CurrentTaskStatus =
+  | "inbox"
+  | "in_progress"
+  | "completed"
+  | "deferred"
+  | "cancelled";
+
+export type CurrentTaskSource = "manual" | "voice";
+
+export interface CurrentTask {
+  id: string;
+  title: string;
+  description: string | null;
+  status: CurrentTaskStatus;
+  is_urgent: boolean | null;
+  is_important: boolean | null;
+  weekly_goal_id: string | null;
+  source: CurrentTaskSource;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EisenhowerQuadrant =
+  | "do_first"
+  | "schedule"
+  | "delegate"
+  | "eliminate";
+
+export interface EisenhowerQuadrantMeta {
+  id: EisenhowerQuadrant;
+  label: string;
+  subtitle: string;
+  is_urgent: boolean;
+  is_important: boolean;
+  color: string;
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+}
+
+export type CreateCurrentTaskInput = {
+  title: string;
+  description?: string;
+  weekly_goal_id?: string;
+  source?: CurrentTaskSource;
+};
+
+export type UpdateCurrentTaskInput = {
+  id: string;
+  title?: string;
+  description?: string;
+  status?: CurrentTaskStatus;
+  is_urgent?: boolean | null;
+  is_important?: boolean | null;
+  weekly_goal_id?: string | null;
+};
+
+export function getQuadrant(
+  task: CurrentTask
+): EisenhowerQuadrant | null {
+  if (task.is_urgent === null || task.is_important === null) return null;
+  if (task.is_urgent && task.is_important) return "do_first";
+  if (!task.is_urgent && task.is_important) return "schedule";
+  if (task.is_urgent && !task.is_important) return "delegate";
+  return "eliminate";
+}
+
+export function isPrioritized(task: CurrentTask): boolean {
+  return task.is_urgent !== null && task.is_important !== null;
+}
+
+export const EISENHOWER_QUADRANTS: EisenhowerQuadrantMeta[] = [
+  {
+    id: "do_first",
+    label: "Do First",
+    subtitle: "Urgent & Important",
+    is_urgent: true,
+    is_important: true,
+    color: "border-red-200 bg-red-50",
+    position: "top-left",
+  },
+  {
+    id: "schedule",
+    label: "Schedule",
+    subtitle: "Important, Not Urgent",
+    is_urgent: false,
+    is_important: true,
+    color: "border-blue-200 bg-blue-50",
+    position: "top-right",
+  },
+  {
+    id: "delegate",
+    label: "Delegate",
+    subtitle: "Urgent, Not Important",
+    is_urgent: true,
+    is_important: false,
+    color: "border-amber-200 bg-amber-50",
+    position: "bottom-left",
+  },
+  {
+    id: "eliminate",
+    label: "Eliminate",
+    subtitle: "Not Urgent, Not Important",
+    is_urgent: false,
+    is_important: false,
+    color: "border-gray-200 bg-gray-50",
+    position: "bottom-right",
+  },
+];

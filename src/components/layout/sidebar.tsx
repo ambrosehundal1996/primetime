@@ -8,11 +8,13 @@ import {
   MessageSquare,
   LayoutDashboard,
   Lightbulb,
+  ListTodo,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/today", label: "Today", icon: LayoutDashboard },
+  { href: "/current-tasks", label: "Current Tasks", icon: ListTodo },
   { href: "/goals", label: "Goals", icon: Target },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/chat", label: "Agent", icon: MessageSquare },
