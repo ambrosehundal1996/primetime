@@ -137,16 +137,27 @@ export async function updateTaskStatus(
     input.notes
   );
 
-  if (
-    task.weekly_goal_id &&
-    input.completed_value &&
-    input.status === "completed"
-  ) {
-    const { updateGoalProgress } = await import("@/services/goals");
-    await updateGoalProgress(task.weekly_goal_id, input.completed_value);
-  }
+  await syncGoalProgressFromTask(task, input, data);
 
   return data;
+}
+
+async function syncGoalProgressFromTask(
+  task: ActionTask,
+  input: UpdateTaskStatusInput,
+  updated: ActionTask
+): Promise<void> {
+  if (!task.weekly_goal_id) return;
+  if (!["completed", "partially_completed"].includes(input.status)) return;
+
+  const previous = task.completed_value ?? 0;
+  const current = updated.completed_value ?? input.completed_value ?? 0;
+  const delta = current - previous;
+
+  if (delta > 0) {
+    const { updateGoalProgress } = await import("@/services/goals");
+    await updateGoalProgress(task.weekly_goal_id, delta);
+  }
 }
 
 export async function logTaskProgress(

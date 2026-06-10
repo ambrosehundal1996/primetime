@@ -70,6 +70,10 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
         <TaskList tasks={byPriority.P1} title="P1 — Important" />
         <TaskList tasks={byStatus.scheduled} title="Scheduled" />
         <TaskList tasks={byStatus.completed} title="Completed" />
+        <TaskList
+          tasks={byStatus.other.filter((t) => t.status === "partially_completed")}
+          title="Partial"
+        />
         <TaskList tasks={byStatus.missed} title="Missed" />
         <TaskList tasks={byPriority.P2} title="P2 — Nice to Have" />
       </div>

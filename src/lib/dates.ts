@@ -9,10 +9,16 @@ import {
   startOfDay,
   endOfDay,
 } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
+import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 
-function getAppTimezone(): string {
+export function getAppTimezone(): string {
   return process.env.CALENDAR_TIMEZONE ?? "America/Los_Angeles";
+}
+
+export function getAppTimezoneLabel(): string {
+  const tz = getAppTimezone();
+  if (tz === "America/Los_Angeles") return "Pacific Time";
+  return tz.replace("_", " ");
 }
 
 function nowInAppTimezone(): Date {
@@ -40,12 +46,15 @@ export function todayStr(): string {
 }
 
 export function formatDate(date: string | Date, fmt = "MMM d, yyyy"): string {
-  const d = typeof date === "string" ? parseISO(date) : date;
-  return format(d, fmt);
+  const tz = getAppTimezone();
+  if (typeof date === "string") {
+    return formatInTimeZone(date, tz, fmt);
+  }
+  return formatInTimeZone(date.toISOString(), tz, fmt);
 }
 
 export function formatTime(iso: string): string {
-  return format(parseISO(iso), "h:mm a");
+  return formatInTimeZone(iso, getAppTimezone(), "h:mm a");
 }
 
 export function daysRemainingInWeek(date: Date = new Date()): number {

@@ -88,15 +88,18 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design.
 | 9:00 PM daily | `/api/cron/daily-summary` | End-of-day execution summary |
 | 8:00 PM Sunday | `/api/cron/weekly-summary` | Weekly review + insights |
 
-## Agent Tools
+## AI Agent
 
-The AI agent has 11 tools for reading and writing application state:
+The `/chat` tab runs an accountability agent powered by the OpenAI Agents SDK. It reads your Supabase data and Google Calendar through tools — it never owns state itself.
 
-`get_active_goals` · `get_tasks_for_day` · `get_goal_progress` · `get_calendar_availability` · `create_task` · `update_task_status` · `log_task_progress` · `generate_daily_plan` · `generate_daily_summary` · `generate_weekly_summary` · `get_behavior_insights`
+See **[docs/AGENT.md](docs/AGENT.md)** for full documentation: permissions, tools, workflows, and limitations.
+
+**13 tools:** `get_active_goals` · `get_goal_progress` · `get_tasks_for_day` · `get_tasks_for_week` · `get_calendar_availability` · `create_weekly_goal` · `create_task` · `update_task_status` · `log_task_progress` · `generate_daily_plan` · `generate_daily_summary` · `generate_weekly_summary` · `get_behavior_insights`
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — System design, data flow, layer separation
+- [AI Agent](docs/AGENT.md) — How the agent works, permissions, and workflows
 - [Wireframes](docs/WIREFRAMES.md) — Dashboard UI layouts
 - [Roadmap](docs/ROADMAP.md) — MVP phases and future features
 - [Google Calendar Setup](docs/GOOGLE_CALENDAR_SETUP.md) — OAuth and refresh token guide

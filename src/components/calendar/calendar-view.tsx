@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatTime, formatDate } from "@/lib/dates";
+import { formatTime, getAppTimezoneLabel } from "@/lib/dates";
 import { formatMinutes } from "@/lib/utils";
 import type { CalendarEvent, TimeSlot } from "@/types/database";
 import { Calendar, Clock } from "lucide-react";
@@ -22,7 +22,8 @@ export function CalendarView({
   return (
     <div className="space-y-6">
       <p className="text-sm text-gray-500">
-        {events.length} events · {availableSlots.length} open slots
+        {events.length} events · {availableSlots.length} open slots ·{" "}
+        {getAppTimezoneLabel()}
       </p>
 
       {error && (

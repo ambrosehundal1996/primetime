@@ -1,6 +1,7 @@
 import { google } from "googleapis";
-import { addMinutes, parseISO, format, isBefore, isAfter } from "date-fns";
-import { fromZonedTime } from "date-fns-tz";
+import { addMinutes, parseISO, isBefore, isAfter } from "date-fns";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { getAppTimezone } from "@/lib/dates";
 import type { CalendarEvent, TimeSlot } from "@/types/database";
 
 const WORK_DAY_START_HOUR = 7;
@@ -14,7 +15,7 @@ export type CalendarFetchResult = {
 };
 
 function getCalendarTimezone(): string {
-  return process.env.CALENDAR_TIMEZONE ?? "America/Los_Angeles";
+  return getAppTimezone();
 }
 
 function isCalendarConfigured(): boolean {
@@ -166,7 +167,7 @@ export function eventDateKey(event: CalendarEvent): string {
   if (event.allDay || !event.start.includes("T")) {
     return event.start.slice(0, 10);
   }
-  return format(parseISO(event.start), "yyyy-MM-dd");
+  return formatInTimeZone(event.start, getCalendarTimezone(), "yyyy-MM-dd");
 }
 
 export function groupEventsByDate(
@@ -191,8 +192,15 @@ export function findAvailableSlots(
   dateStr: string,
   minDurationMinutes = MIN_SLOT_MINUTES
 ): TimeSlot[] {
-  const dayStart = parseISO(`${dateStr}T${String(WORK_DAY_START_HOUR).padStart(2, "0")}:00:00`);
-  const dayEnd = parseISO(`${dateStr}T${String(WORK_DAY_END_HOUR).padStart(2, "0")}:00:00`);
+  const tz = getCalendarTimezone();
+  const dayStart = fromZonedTime(
+    `${dateStr}T${String(WORK_DAY_START_HOUR).padStart(2, "0")}:00:00`,
+    tz
+  );
+  const dayEnd = fromZonedTime(
+    `${dateStr}T${String(WORK_DAY_END_HOUR).padStart(2, "0")}:00:00`,
+    tz
+  );
 
   const busyBlocks = events
     .filter((e) => !e.allDay && e.start && e.end)
@@ -214,8 +222,8 @@ export function findAvailableSlots(
     const gapMinutes = (block.start.getTime() - cursor.getTime()) / 60000;
     if (gapMinutes >= minDurationMinutes) {
       slots.push({
-        start: format(cursor, "yyyy-MM-dd'T'HH:mm:ss"),
-        end: format(block.start, "yyyy-MM-dd'T'HH:mm:ss"),
+        start: cursor.toISOString(),
+        end: block.start.toISOString(),
         duration_minutes: Math.floor(gapMinutes),
       });
     }
@@ -225,8 +233,8 @@ export function findAvailableSlots(
   const remainingMinutes = (dayEnd.getTime() - cursor.getTime()) / 60000;
   if (remainingMinutes >= minDurationMinutes) {
     slots.push({
-      start: format(cursor, "yyyy-MM-dd'T'HH:mm:ss"),
-      end: format(dayEnd, "yyyy-MM-dd'T'HH:mm:ss"),
+      start: cursor.toISOString(),
+      end: dayEnd.toISOString(),
       duration_minutes: Math.floor(remainingMinutes),
     });
   }
@@ -267,8 +275,9 @@ export function allocateSlot(
   const start = parseISO(suitable.start);
   const end = addMinutes(start, minutesNeeded);
 
+  const tz = getCalendarTimezone();
   return {
-    start: format(start, "yyyy-MM-dd'T'HH:mm:ssXXX"),
-    end: format(end, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    start: formatInTimeZone(start, tz, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    end: formatInTimeZone(end, tz, "yyyy-MM-dd'T'HH:mm:ssXXX"),
   };
 }
