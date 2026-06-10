@@ -2,10 +2,13 @@ import { google } from "googleapis";
 import { addMinutes, parseISO, isBefore, isAfter } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { getAppTimezone } from "@/lib/dates";
+import {
+  WORK_DAY_START_HOUR,
+  WORK_DAY_END_HOUR,
+  toGoogleDateTime,
+} from "@/lib/calendar-layout";
 import type { CalendarEvent, TimeSlot } from "@/types/database";
 
-const WORK_DAY_START_HOUR = 7;
-const WORK_DAY_END_HOUR = 22;
 const MIN_SLOT_MINUTES = 30;
 
 export type CalendarFetchResult = {
@@ -280,4 +283,66 @@ export function allocateSlot(
     start: formatInTimeZone(start, tz, "yyyy-MM-dd'T'HH:mm:ssXXX"),
     end: formatInTimeZone(end, tz, "yyyy-MM-dd'T'HH:mm:ssXXX"),
   };
+}
+
+export type CalendarWriteResult = {
+  eventId: string | null;
+  error: string | null;
+};
+
+export async function upsertCalendarEvent(input: {
+  title: string;
+  description?: string;
+  start: string;
+  end: string;
+  existingEventId?: string | null;
+}): Promise<CalendarWriteResult> {
+  if (!isCalendarConfigured()) {
+    return {
+      eventId: null,
+      error: "Google Calendar is not configured. Add GOOGLE_* env vars.",
+    };
+  }
+
+  const calendar = getCalendarClient();
+  if (!calendar) {
+    return { eventId: null, error: "Failed to initialize Google Calendar client." };
+  }
+
+  const calendarId = process.env.GOOGLE_CALENDAR_ID ?? "primary";
+  const tz = getCalendarTimezone();
+  const requestBody = {
+    summary: input.title,
+    description: input.description,
+    start: {
+      dateTime: toGoogleDateTime(input.start),
+      timeZone: tz,
+    },
+    end: {
+      dateTime: toGoogleDateTime(input.end),
+      timeZone: tz,
+    },
+  };
+
+  try {
+    if (input.existingEventId) {
+      const response = await calendar.events.patch({
+        calendarId,
+        eventId: input.existingEventId,
+        requestBody,
+      });
+      return { eventId: response.data.id ?? input.existingEventId, error: null };
+    }
+
+    const response = await calendar.events.insert({
+      calendarId,
+      requestBody,
+    });
+    return { eventId: response.data.id ?? null, error: null };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown calendar write error";
+    console.error("Failed to write calendar event:", error);
+    return { eventId: null, error: message };
+  }
 }

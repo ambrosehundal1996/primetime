@@ -1,6 +1,6 @@
 # Google Calendar Setup
 
-Primetime reads your Google Calendar to find busy time and open slots. It is **read-only** — it never creates or modifies calendar events.
+Primetime reads your Google Calendar to find busy time and open slots, and can **create events** when you drag tasks onto the day schedule on `/today`.
 
 ## What you need
 
@@ -9,9 +9,10 @@ Primetime reads your Google Calendar to find busy time and open slots. It is **r
 | `GOOGLE_CLIENT_ID` | OAuth client ID from Google Cloud |
 | `GOOGLE_CLIENT_SECRET` | OAuth client secret |
 | `GOOGLE_REFRESH_TOKEN` | Long-lived token for server-side access |
-| `GOOGLE_CALENDAR_ID` | Calendar to read (default: `primary`) |
+| `GOOGLE_CALENDAR_ID` | Calendar to read/write (default: `primary`) |
+| `CALENDAR_TIMEZONE` | Optional — display timezone (default: `America/Los_Angeles`) |
 
-Set all four in `.env.local` locally and in the Vercel dashboard for production.
+Set all four Google vars in `.env.local` locally and in the Vercel dashboard for production.
 
 ---
 
@@ -29,7 +30,9 @@ Set all four in `.env.local` locally and in the Vercel dashboard for production.
 1. APIs & Services → **OAuth consent screen**
 2. User type: **External** (fine for personal use)
 3. Fill in app name, support email
-4. Scopes: add `https://www.googleapis.com/auth/calendar.readonly`
+4. Scopes — add both:
+   - `https://www.googleapis.com/auth/calendar.readonly` (read events)
+   - `https://www.googleapis.com/auth/calendar.events` (create/update events when scheduling tasks)
 5. Test users: add your Google account email (required while app is in "Testing" mode)
 
 ---
@@ -54,11 +57,14 @@ Use Google's OAuth Playground (easiest for a single-user app):
 4. Enter your `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
 5. In Step 1, find **Google Calendar API v3** → select:
    - `https://www.googleapis.com/auth/calendar.readonly`
+   - `https://www.googleapis.com/auth/calendar.events`
 6. Click **Authorize APIs** → sign in with your Google account → Allow
 7. Click **Exchange authorization code for tokens**
 8. Copy the **Refresh token** from the response
 
 The refresh token does not expire unless you revoke access. Store it in `GOOGLE_REFRESH_TOKEN`.
+
+**Upgrading from read-only:** If you previously authorized with only `calendar.readonly`, you must re-run the playground with `calendar.events` included and replace `GOOGLE_REFRESH_TOKEN`.
 
 ---
 
@@ -70,20 +76,27 @@ GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxx
 GOOGLE_REFRESH_TOKEN=1//0xxxxxxxx
 GOOGLE_CALENDAR_ID=primary
+CALENDAR_TIMEZONE=America/Los_Angeles
 ```
 
-Redeploy on Vercel after adding these.
+Redeploy on Vercel after adding or updating these.
 
 ---
 
-## Step 6: Verify it works
+## Step 6: Run the migration
+
+Apply `supabase/migrations/004_google_event_id.sql` in the Supabase SQL editor. This adds `google_event_id` on `action_tasks` so rescheduled tasks update the same Google event.
+
+---
+
+## Step 7: Verify it works
 
 ```bash
 # Local (with dev server running)
 curl "http://localhost:3000/api/calendar/events?date=2026-06-07"
 ```
 
-Or open `/calendar` in the app — you should see today's events and available slots.
+Or open `/today` — you should see today's Google events in the day schedule. Drag an unscheduled task onto a time slot; it should appear on your Google Calendar.
 
 ---
 
@@ -94,13 +107,15 @@ Or open `/calendar` in the app — you should see today's events and available s
 | Empty events, no error | Check refresh token is valid; re-run OAuth Playground |
 | `invalid_grant` | Refresh token revoked — generate a new one |
 | `access_denied` on authorize | Add your email as a test user on consent screen |
-| Works locally, not on Vercel | Confirm all 4 env vars are set in Vercel + redeployed |
+| Works locally, not on Vercel | Confirm all env vars are set in Vercel + redeployed |
 | Wrong calendar | Set `GOOGLE_CALENDAR_ID` to your calendar's ID (find it in Google Calendar settings → Integrate calendar) |
+| "write access required" when scheduling | Re-authorize with `calendar.events` scope and update refresh token |
+| `insufficientPermissions` | Same as above — token only has read scope |
 
 ---
 
 ## Security notes
 
 - Never commit tokens to git (`.env.local` is gitignored)
-- The refresh token grants read access to your calendar — treat it like a password
-- Scope is read-only (`calendar.readonly`) — Primetime cannot modify your calendar
+- The refresh token grants read/write access to your calendar — treat it like a password
+- Primetime only writes events when you explicitly drag a task onto the schedule

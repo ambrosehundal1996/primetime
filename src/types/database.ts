@@ -60,6 +60,7 @@ export interface ActionTask {
   status: TaskStatus;
   scheduled_start: string | null;
   scheduled_end: string | null;
+  google_event_id: string | null;
   completed_at: string | null;
   source: TaskSource;
   created_at: string;

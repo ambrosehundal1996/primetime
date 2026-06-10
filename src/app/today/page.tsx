@@ -1,11 +1,13 @@
 import { Suspense } from "react";
 import { getTasksForDay, getTasksForWeek } from "@/services/tasks";
+import { getCalendarEvents } from "@/services/calendar";
 import { calculateDailyMetrics } from "@/services/metrics";
 import { groupTasksByPriority, groupTasksByStatus } from "@/services/tasks";
 import { todayStr, formatDate, getWeekBounds, isToday } from "@/lib/dates";
 import { ExecutionScore } from "@/components/today/execution-score";
 import { TaskList } from "@/components/today/task-list";
 import { TodayDayNav } from "@/components/today/today-day-nav";
+import { TodayDayCalendar } from "@/components/today/today-day-calendar";
 
 export const dynamic = "force-dynamic";
 
@@ -20,13 +22,19 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
   const bounds = getWeekBounds();
   let tasks: Awaited<ReturnType<typeof getTasksForDay>> = [];
   let weekTasks: Awaited<ReturnType<typeof getTasksForWeek>> = [];
+  let calendarResult: Awaited<ReturnType<typeof getCalendarEvents>> = {
+    events: [],
+    error: null,
+    configured: false,
+  };
 
   try {
-    [tasks, weekTasks] = await Promise.all([
+    [tasks, weekTasks, calendarResult] = await Promise.all([
       getTasksForDay(date),
       viewingToday
         ? getTasksForWeek(bounds.startStr, bounds.endStr)
         : Promise.resolve([]),
+      getCalendarEvents(date),
     ]);
   } catch {
     // Supabase not configured yet — show empty state
@@ -45,12 +53,20 @@ export default async function TodayPage({ searchParams }: TodayPageProps) {
   const byStatus = groupTasksByStatus(tasks);
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
+    <div className="p-6 space-y-6 max-w-6xl">
       <Suspense fallback={null}>
         <TodayDayNav date={date} />
       </Suspense>
 
       <ExecutionScore metrics={metrics} />
+
+      <TodayDayCalendar
+        date={date}
+        events={calendarResult.events}
+        tasks={tasks}
+        calendarError={calendarResult.error}
+        calendarConfigured={calendarResult.configured}
+      />
 
       {viewingToday && tasks.length === 0 && upcoming.length > 0 && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">

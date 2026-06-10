@@ -184,19 +184,25 @@ export async function logTaskProgress(
 export async function scheduleTask(
   taskId: string,
   scheduledStart: string,
-  scheduledEnd: string
+  scheduledEnd: string,
+  googleEventId?: string | null
 ): Promise<ActionTask> {
   const supabase = createServerClient();
   const task = await getTaskById(taskId);
   if (!task) throw new Error("Task not found");
 
+  const update: Record<string, unknown> = {
+    scheduled_start: scheduledStart,
+    scheduled_end: scheduledEnd,
+    status: "scheduled",
+  };
+  if (googleEventId !== undefined) {
+    update.google_event_id = googleEventId;
+  }
+
   const { data, error } = await supabase
     .from("action_tasks")
-    .update({
-      scheduled_start: scheduledStart,
-      scheduled_end: scheduledEnd,
-      status: "scheduled",
-    })
+    .update(update)
     .eq("id", taskId)
     .select()
     .single();
@@ -212,6 +218,34 @@ export async function scheduleTask(
   );
 
   return data;
+}
+
+export async function scheduleTaskWithCalendar(
+  taskId: string,
+  scheduledStart: string,
+  scheduledEnd: string
+): Promise<ActionTask> {
+  const task = await getTaskById(taskId);
+  if (!task) throw new Error("Task not found");
+
+  const { upsertCalendarEvent } = await import("@/services/calendar");
+  const { eventId, error } = await upsertCalendarEvent({
+    title: task.title,
+    description: task.description ?? `Primetime · ${task.priority}`,
+    start: scheduledStart,
+    end: scheduledEnd,
+    existingEventId: task.google_event_id,
+  });
+
+  if (error) {
+    throw new Error(
+      error.includes("insufficient") || error.includes("Insufficient")
+        ? "Google Calendar write access required. Re-authorize with calendar.events scope — see docs/GOOGLE_CALENDAR_SETUP.md"
+        : `Failed to create Google Calendar event: ${error}`
+    );
+  }
+
+  return scheduleTask(taskId, scheduledStart, scheduledEnd, eventId);
 }
 
 export function sortTasksByPriority(tasks: ActionTask[]): ActionTask[] {
