@@ -252,6 +252,15 @@ export function suggestWorkBlocks(
   return slots.filter((s) => s.duration_minutes >= estimatedMinutes);
 }
 
+function intervalsOverlap(
+  aStart: Date,
+  aEnd: Date,
+  bStart: Date,
+  bEnd: Date
+): boolean {
+  return aStart < bEnd && aEnd > bStart;
+}
+
 export function hasSchedulingConflict(
   events: CalendarEvent[],
   start: string,
@@ -264,7 +273,32 @@ export function hasSchedulingConflict(
     if (event.allDay || !event.start || !event.end) return false;
     const eventStart = parseISO(event.start);
     const eventEnd = parseISO(event.end);
-    return proposedStart < eventEnd && proposedEnd > eventStart;
+    return intervalsOverlap(proposedStart, proposedEnd, eventStart, eventEnd);
+  });
+}
+
+export function hasScheduleConflict(
+  externalEvents: CalendarEvent[],
+  scheduledTasks: { id: string; scheduled_start: string | null; scheduled_end: string | null }[],
+  start: string,
+  end: string,
+  excludeTaskId: string
+): boolean {
+  if (hasSchedulingConflict(externalEvents, start, end)) return true;
+
+  const proposedStart = parseISO(start);
+  const proposedEnd = parseISO(end);
+
+  return scheduledTasks.some((task) => {
+    if (task.id === excludeTaskId || !task.scheduled_start || !task.scheduled_end) {
+      return false;
+    }
+    return intervalsOverlap(
+      proposedStart,
+      proposedEnd,
+      parseISO(task.scheduled_start),
+      parseISO(task.scheduled_end)
+    );
   });
 }
 
@@ -343,6 +377,34 @@ export async function upsertCalendarEvent(input: {
     const message =
       error instanceof Error ? error.message : "Unknown calendar write error";
     console.error("Failed to write calendar event:", error);
+    return { eventId: null, error: message };
+  }
+}
+
+export async function deleteCalendarEvent(
+  eventId: string
+): Promise<CalendarWriteResult> {
+  if (!isCalendarConfigured()) {
+    return {
+      eventId: null,
+      error: "Google Calendar is not configured. Add GOOGLE_* env vars.",
+    };
+  }
+
+  const calendar = getCalendarClient();
+  if (!calendar) {
+    return { eventId: null, error: "Failed to initialize Google Calendar client." };
+  }
+
+  const calendarId = process.env.GOOGLE_CALENDAR_ID ?? "primary";
+
+  try {
+    await calendar.events.delete({ calendarId, eventId });
+    return { eventId: null, error: null };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown calendar delete error";
+    console.error("Failed to delete calendar event:", error);
     return { eventId: null, error: message };
   }
 }

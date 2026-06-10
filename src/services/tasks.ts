@@ -248,6 +248,108 @@ export async function scheduleTaskWithCalendar(
   return scheduleTask(taskId, scheduledStart, scheduledEnd, eventId);
 }
 
+export async function updateScheduledTaskWithCalendar(
+  taskId: string,
+  input: {
+    title?: string;
+    scheduledStart: string;
+    scheduledEnd: string;
+  }
+): Promise<ActionTask> {
+  const task = await getTaskById(taskId);
+  if (!task) throw new Error("Task not found");
+
+  const title = input.title?.trim() || task.title;
+  const durationMinutes = Math.max(
+    15,
+    Math.round(
+      (new Date(input.scheduledEnd).getTime() -
+        new Date(input.scheduledStart).getTime()) /
+        60000
+    )
+  );
+
+  const { upsertCalendarEvent } = await import("@/services/calendar");
+  const { eventId, error } = await upsertCalendarEvent({
+    title,
+    description: task.description ?? `Primetime · ${task.priority}`,
+    start: input.scheduledStart,
+    end: input.scheduledEnd,
+    existingEventId: task.google_event_id,
+  });
+
+  if (error) {
+    throw new Error(`Failed to update Google Calendar event: ${error}`);
+  }
+
+  const supabase = createServerClient();
+  const { data, error: dbError } = await supabase
+    .from("action_tasks")
+    .update({
+      title,
+      scheduled_start: input.scheduledStart,
+      scheduled_end: input.scheduledEnd,
+      estimated_minutes: durationMinutes,
+      status: "scheduled",
+      google_event_id: eventId ?? task.google_event_id,
+    })
+    .eq("id", taskId)
+    .select()
+    .single();
+
+  if (dbError) throw dbError;
+
+  await recordTaskEvent(
+    taskId,
+    "scheduled",
+    task.status,
+    "scheduled",
+    `Rescheduled ${input.scheduledStart} - ${input.scheduledEnd}`
+  );
+
+  return data;
+}
+
+export async function unscheduleTaskWithCalendar(
+  taskId: string
+): Promise<ActionTask> {
+  const task = await getTaskById(taskId);
+  if (!task) throw new Error("Task not found");
+
+  if (task.google_event_id) {
+    const { deleteCalendarEvent } = await import("@/services/calendar");
+    const { error } = await deleteCalendarEvent(task.google_event_id);
+    if (error) {
+      throw new Error(`Failed to remove Google Calendar event: ${error}`);
+    }
+  }
+
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("action_tasks")
+    .update({
+      scheduled_start: null,
+      scheduled_end: null,
+      google_event_id: null,
+      status: "planned",
+    })
+    .eq("id", taskId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  await recordTaskEvent(
+    taskId,
+    "scheduled",
+    task.status,
+    "planned",
+    "Removed from calendar schedule"
+  );
+
+  return data;
+}
+
 export function sortTasksByPriority(tasks: ActionTask[]): ActionTask[] {
   return [...tasks].sort(
     (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]

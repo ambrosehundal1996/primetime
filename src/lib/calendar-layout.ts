@@ -5,6 +5,8 @@ import { getAppTimezone } from "@/lib/dates";
 export const WORK_DAY_START_HOUR = 7;
 export const WORK_DAY_END_HOUR = 22;
 export const SLOT_MINUTES = 30;
+export const SNAP_MINUTES = 15;
+export const MIN_EVENT_MINUTES = 15;
 
 export function getDayStart(dateStr: string): Date {
   return fromZonedTime(
@@ -77,4 +79,60 @@ export function scheduleEndFromStart(
 
 export function toGoogleDateTime(iso: string): string {
   return formatInTimeZone(parseISO(iso), getAppTimezone(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+export function snapMinutesFromDayStart(minutes: number): number {
+  const snapped =
+    Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES;
+  const maxStart = getWorkDayDurationMinutes() - MIN_EVENT_MINUTES;
+  return Math.max(0, Math.min(maxStart, snapped));
+}
+
+export function yRatioToMinutes(yRatio: number): number {
+  return snapMinutesFromDayStart(yRatio * getWorkDayDurationMinutes());
+}
+
+export function minutesFromDayStartToISO(
+  dateStr: string,
+  minutesFromStart: number
+): string {
+  const hour =
+    WORK_DAY_START_HOUR + Math.floor(minutesFromStart / 60);
+  const minute = minutesFromStart % 60;
+  return slotToISO(dateStr, hour, minute);
+}
+
+export function getDurationMinutes(startIso: string, endIso: string): number {
+  return Math.max(
+    MIN_EVENT_MINUTES,
+    differenceInMinutes(parseISO(endIso), parseISO(startIso))
+  );
+}
+
+export function isoToTimeValue(iso: string): string {
+  return formatInTimeZone(parseISO(iso), getAppTimezone(), "HH:mm");
+}
+
+export function timeValueToISO(dateStr: string, timeValue: string): string {
+  const [hour, minute] = timeValue.split(":").map(Number);
+  return slotToISO(dateStr, hour, minute);
+}
+
+export function clampScheduleRange(
+  dateStr: string,
+  startIso: string,
+  endIso: string
+): { start: string; end: string } {
+  const dayStart = getDayStart(dateStr);
+  const dayEnd = getDayEnd(dateStr);
+  let start = parseISO(startIso);
+  let end = parseISO(endIso);
+
+  if (start < dayStart) start = dayStart;
+  if (end > dayEnd) end = dayEnd;
+  if (end <= start) {
+    end = addMinutes(start, MIN_EVENT_MINUTES);
+  }
+
+  return { start: start.toISOString(), end: end.toISOString() };
 }

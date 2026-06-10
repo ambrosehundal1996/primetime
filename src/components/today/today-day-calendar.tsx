@@ -1,11 +1,17 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { addMinutes, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
-import { scheduleTaskToCalendarAction } from "@/actions/tasks";
+import {
+  scheduleTaskToCalendarAction,
+  updateScheduledTaskAction,
+  unscheduleTaskAction,
+} from "@/actions/tasks";
 import {
   blockPositionStyle,
+  getDurationMinutes,
   getTimeSlotLabels,
   getWorkDayDurationMinutes,
   scheduleEndFromStart,
@@ -17,6 +23,10 @@ import { getAppTimezoneLabel } from "@/lib/dates";
 import type { ActionTask, CalendarEvent } from "@/types/database";
 import { Calendar, GripVertical, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ScheduledTaskBlock } from "./scheduled-task-block";
+import { ScheduledTaskEditDialog } from "./scheduled-task-edit-dialog";
+import { ScheduleConfirmDialog } from "./schedule-confirm-dialog";
+import type { PendingScheduleChange } from "./schedule-change-types";
 
 interface TodayDayCalendarProps {
   date: string;
@@ -40,10 +50,18 @@ export function TodayDayCalendar({
   calendarConfigured = true,
 }: TodayDayCalendarProps) {
   const router = useRouter();
+  const gridRef = useRef<HTMLDivElement>(null);
   const [pending, startTransition] = useTransition();
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<ActionTask | null>(null);
+  const [pendingChange, setPendingChange] =
+    useState<PendingScheduleChange | null>(null);
+  const [blockPreviews, setBlockPreviews] = useState<
+    Record<string, { start: string; end: string }>
+  >({});
 
   const linkedEventIds = useMemo(
     () => new Set(tasks.map((t) => t.google_event_id).filter(Boolean)),
@@ -74,6 +92,75 @@ export function TodayDayCalendar({
   );
 
   const timeSlots = getTimeSlotLabels();
+
+  function requestChange(change: PendingScheduleChange) {
+    setConfirmError(null);
+    setActionError(null);
+    setPendingChange(change);
+
+    if (change.kind !== "unschedule") {
+      setBlockPreviews((prev) => ({
+        ...prev,
+        [change.taskId]: {
+          start: change.nextStart,
+          end: change.nextEnd,
+        },
+      }));
+    }
+  }
+
+  function cancelPendingChange() {
+    if (pendingChange && pendingChange.kind !== "unschedule") {
+      setBlockPreviews((prev) => {
+        const next = { ...prev };
+        delete next[pendingChange.taskId];
+        return next;
+      });
+    }
+    setPendingChange(null);
+    setConfirmError(null);
+  }
+
+  function confirmPendingChange() {
+    if (!pendingChange) return;
+
+    setConfirmError(null);
+    startTransition(async () => {
+      let result: { success: boolean; error?: string };
+
+      if (pendingChange.kind === "schedule") {
+        result = await scheduleTaskToCalendarAction(
+          pendingChange.taskId,
+          date,
+          pendingChange.nextStart,
+          pendingChange.nextEnd
+        );
+      } else if (pendingChange.kind === "update") {
+        result = await updateScheduledTaskAction(
+          pendingChange.taskId,
+          date,
+          pendingChange.nextStart,
+          pendingChange.nextEnd,
+          pendingChange.nextTitle
+        );
+      } else {
+        result = await unscheduleTaskAction(pendingChange.taskId);
+      }
+
+      if (!result.success) {
+        setConfirmError(result.error ?? "Failed to apply change.");
+        return;
+      }
+
+      setBlockPreviews((prev) => {
+        const next = { ...prev };
+        delete next[pendingChange.taskId];
+        return next;
+      });
+      setPendingChange(null);
+      router.refresh();
+    });
+  }
 
   function handleDragStart(task: ActionTask, e: React.DragEvent) {
     setDraggingTaskId(task.id);
@@ -108,25 +195,78 @@ export function TodayDayCalendar({
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
 
-    const scheduledStart = slotToISO(date, hour, minute);
-    const scheduledEnd = scheduleEndFromStart(
-      scheduledStart,
-      task.estimated_minutes
-    );
+    const nextStart = slotToISO(date, hour, minute);
+    let nextEnd: string;
 
-    setActionError(null);
-    startTransition(async () => {
-      const result = await scheduleTaskToCalendarAction(
-        taskId,
-        date,
-        scheduledStart,
-        scheduledEnd
+    if (task.scheduled_start && task.scheduled_end) {
+      const duration = getDurationMinutes(
+        task.scheduled_start,
+        task.scheduled_end
       );
-      if (!result.success) {
-        setActionError(result.error ?? "Failed to schedule task.");
+      nextEnd = addMinutes(parseISO(nextStart), duration).toISOString();
+    } else {
+      nextEnd = scheduleEndFromStart(nextStart, task.estimated_minutes);
+    }
+
+    if (task.scheduled_start && task.scheduled_end) {
+      if (
+        nextStart === task.scheduled_start &&
+        nextEnd === task.scheduled_end
+      ) {
         return;
       }
-      router.refresh();
+      requestChange({
+        kind: "update",
+        taskId: task.id,
+        previousTitle: task.title,
+        nextTitle: task.title,
+        previousStart: task.scheduled_start,
+        previousEnd: task.scheduled_end,
+        nextStart,
+        nextEnd,
+      });
+      return;
+    }
+
+    requestChange({
+      kind: "schedule",
+      taskId: task.id,
+      taskTitle: task.title,
+      nextTitle: task.title,
+      nextStart,
+      nextEnd,
+    });
+  }
+
+  function handleBlockCommit(
+    taskId: string,
+    nextStart: string,
+    nextEnd: string
+  ) {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task?.scheduled_start || !task.scheduled_end) return;
+
+    if (
+      nextStart === task.scheduled_start &&
+      nextEnd === task.scheduled_end
+    ) {
+      setBlockPreviews((prev) => {
+        const next = { ...prev };
+        delete next[taskId];
+        return next;
+      });
+      return;
+    }
+
+    requestChange({
+      kind: "update",
+      taskId: task.id,
+      previousTitle: task.title,
+      nextTitle: task.title,
+      previousStart: task.scheduled_start,
+      previousEnd: task.scheduled_end,
+      nextStart,
+      nextEnd,
     });
   }
 
@@ -137,7 +277,9 @@ export function TodayDayCalendar({
           <Calendar className="h-4 w-4 text-gray-500" />
           <h2 className="text-sm font-semibold text-gray-900">Day schedule</h2>
         </div>
-        <p className="text-xs text-gray-400">{getAppTimezoneLabel()}</p>
+        <p className="text-xs text-gray-400">
+          Drag to move · resize · click to edit · {getAppTimezoneLabel()}
+        </p>
       </div>
 
       {(calendarError || actionError) && (
@@ -165,13 +307,13 @@ export function TodayDayCalendar({
               {unscheduledTasks.map((task) => (
                 <div
                   key={task.id}
-                  draggable
+                  draggable={!pendingChange}
                   onDragStart={(e) => handleDragStart(task, e)}
                   onDragEnd={handleDragEnd}
                   className={cn(
                     "flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 cursor-grab active:cursor-grabbing transition-opacity",
                     draggingTaskId === task.id && "opacity-40",
-                    pending && "pointer-events-none opacity-60"
+                    (pending || pendingChange) && "pointer-events-none opacity-60"
                   )}
                 >
                   <GripVertical className="h-4 w-4 shrink-0 text-gray-300 mt-0.5" />
@@ -197,13 +339,16 @@ export function TodayDayCalendar({
           {pending && (
             <p className="mt-3 flex items-center gap-1.5 text-xs text-gray-500">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Creating calendar event…
+              Syncing with Google Calendar…
             </p>
           )}
         </div>
 
         <div className="relative p-4">
-          <div className="relative h-[640px] rounded-lg border border-gray-100 bg-gray-50/50">
+          <div
+            ref={gridRef}
+            className="relative h-[640px] rounded-lg border border-gray-100 bg-gray-50/50"
+          >
             <div className="absolute inset-0">
               {timeSlots.map((slot) => {
                 const slotKey = `${slot.hour}-${slot.minute}`;
@@ -255,29 +400,53 @@ export function TodayDayCalendar({
                 })}
 
               {scheduledTasks.map((task) => {
-                const style = blockPositionStyle(
-                  date,
-                  task.scheduled_start!,
-                  task.scheduled_end!
-                );
+                const preview = blockPreviews[task.id];
+                const isPendingPreview =
+                  pendingChange?.taskId === task.id &&
+                  pendingChange.kind !== "unschedule";
                 return (
-                  <div
+                  <ScheduledTaskBlock
                     key={task.id}
-                    className="absolute left-14 right-2 rounded-md border border-gray-800 bg-gray-900 px-2 py-1 overflow-hidden z-20"
-                    style={style}
-                  >
-                    <p className="text-[11px] font-medium text-white truncate">
-                      {task.title}
-                    </p>
-                    <p className="text-[10px] text-gray-300">
-                      {task.priority}
-                      {task.estimated_minutes
-                        ? ` · ${formatMinutes(task.estimated_minutes)}`
-                        : ""}
-                    </p>
-                  </div>
+                    task={task}
+                    date={date}
+                    gridRef={gridRef}
+                    disabled={pending || Boolean(pendingChange)}
+                    previewStart={preview?.start}
+                    previewEnd={preview?.end}
+                    isPendingConfirm={isPendingPreview}
+                    onPreviewChange={(next) => {
+                      if (pendingChange) return;
+                      setBlockPreviews((prev) => {
+                        if (!next) {
+                          const copy = { ...prev };
+                          delete copy[task.id];
+                          return copy;
+                        }
+                        return { ...prev, [task.id]: next };
+                      });
+                    }}
+                    onCommit={handleBlockCommit}
+                    onEdit={setEditingTask}
+                  />
                 );
               })}
+
+              {pendingChange?.kind === "schedule" &&
+                blockPreviews[pendingChange.taskId] && (
+                  <div
+                    className="absolute left-14 right-2 rounded-md border-2 border-dashed border-gray-600 bg-gray-900/80 px-2 py-1 overflow-hidden z-20 pointer-events-none"
+                    style={blockPositionStyle(
+                      date,
+                      blockPreviews[pendingChange.taskId].start,
+                      blockPreviews[pendingChange.taskId].end
+                    )}
+                  >
+                    <p className="text-[11px] font-medium text-white truncate">
+                      {pendingChange.nextTitle}
+                    </p>
+                    <p className="text-[10px] text-gray-300">Pending confirm</p>
+                  </div>
+                )}
             </div>
           </div>
 
@@ -290,9 +459,33 @@ export function TodayDayCalendar({
               <span className="h-2.5 w-2.5 rounded-sm bg-gray-900" />
               Scheduled tasks
             </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm border-2 border-dashed border-gray-600 bg-gray-900/80" />
+              Pending confirmation
+            </span>
           </div>
         </div>
       </div>
+
+      {editingTask && !pendingChange && (
+        <ScheduledTaskEditDialog
+          key={editingTask.id}
+          task={editingTask}
+          date={date}
+          onClose={() => setEditingTask(null)}
+          onRequestChange={requestChange}
+        />
+      )}
+
+      {pendingChange && (
+        <ScheduleConfirmDialog
+          change={pendingChange}
+          loading={pending}
+          error={confirmError}
+          onConfirm={confirmPendingChange}
+          onCancel={cancelPendingChange}
+        />
+      )}
     </section>
   );
 }
